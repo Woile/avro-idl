@@ -7,14 +7,16 @@ enum Avdl {
     Protocol(String, Box<Avdl>),
     Empty,
     Comment,
+    Namespace(String, Box<Avdl>),
 }
 
 impl fmt::Display for Avdl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Avdl::Protocol(name, expr) => write!(f, "protocol: \"{name}\", {expr}"),
+            Avdl::Protocol(name, expr) => write!(f, "protocol: \"{name}\"\n {expr}"),
             Avdl::Empty => write!(f, ""),
             Avdl::Comment => write!(f, ""),
+            Avdl::Namespace(namespace, expr) => write!(f, "namespace: \"{namespace}\" \n {expr}"),
         }
     }
 }
@@ -44,11 +46,25 @@ fn parser() -> impl Parser<char, Avdl, Error = Simple<char>> {
         .map(|(name, body)| Avdl::Protocol(name.0, Box::new(body)))
         .labelled("protocol");
 
-    // recursive(|value| {
+    // recursive(|expr| {
+    let namespace = just("@namespace")
+        .or_not()
+        .ignore_then(
+            just('"')
+                .ignore_then(filter(|c| *c != '"').repeated())
+                .then_ignore(just('"'))
+                .delimited_by(just("("), just(")"))
+                .collect::<String>(),
+        )
+        .then(protocol.clone())
+        .padded()
+        .map(|(name, body)| Avdl::Namespace(name, Box::new(body)))
+        .labelled("namespace");
 
-    protocol
-        .or(comment)
-        .then_ignore(end().recover_with(skip_then_retry_until([])))
+    let token = namespace.or(comment.clone()).or(protocol);
+    let token = token.padded_by(comment.repeated()).padded();
+
+    token.then_ignore(end().recover_with(skip_then_retry_until([])))
 }
 fn main() {
     let src = std::fs::read_to_string(std::env::args().nth(1).unwrap()).unwrap();
